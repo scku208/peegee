@@ -4,22 +4,67 @@ import sys
 import psycopg2
 import psycopg2.sql as psysql
 
-VALID_EXTENSION_NAME = ('postgis',)
-VALID_COLUMN_TYPE = (
-    #Built-in general-purpose data types
-    "bigint", "bigserial", "bit", "bit varying", "boolean", "box", "bytea",
-    "character", "character varying", "cidr", "circle", "date",
-    "double precision", "inet", "integer", "interval", "json", "jsonb",
-    "line", "lseg", "macaddr", "macaddr8", "money", "numeric", "path",
-    "pg_lsn", "point", "polygon", "real", "smallint", "smallserial", "serial",
-    "text", "time", "time without time zone", "time with time zone",
-    "timestamp", "timestamp without time zone", "timestamp with time zone",
-    "tsquery", "tsvector", "txid_snapshot", "uuid", "xml",
-    #Aliases
-    "int8", "serial8", "varbit", "bool", "char", "varchar",
-    "float8", "int", "int4", "decimal", "float4", "int2",
-    "serial2", "serial4", "timetz", "timestamptz",
-    )
+TYPE_TO_IDENTIFIER = {
+    'bigint': 'int8',
+        'int8': 'int8',
+    'bigserial': 'serial8',
+        'serial8': 'serial8',
+    'bit': 'bit',
+    'bit varying': 'varbit',
+        'varbit': 'varbit',
+    'boolean': 'bool',
+        'bool': 'bool',
+    'box': 'box',
+    'bytea': 'bytea',
+    'character': 'char',
+        'char': 'char',
+    'character varying': 'varchar',
+        'varchar': 'varchar',
+    'cidr': 'cidr',
+    'circle': 'circle',
+    'date': 'date',
+    'double precision': 'float8',
+        'float8': 'float8',
+    'inet': 'inet',
+    'integer': 'int4',
+        'int': 'int4',
+        'int4': 'int4',
+    'interval': 'interval',
+    'json': 'json',
+    'jsonb': 'jsonb',
+    'line': 'line',
+    'lseg': 'lseg',
+    'macaddr': 'macaddr',
+    'macaddr8': 'macaddr8',
+    'money': 'money',
+    'numeric': 'decimal',
+        'decimal': 'decimal',
+    'path': 'path',
+    'pg_lsn': 'pg_lsn',
+    'point': 'point',
+    'polygon': 'polygon',
+    'real': 'float4',
+        'float4': 'float4',
+    'smallint': 'int2',
+        'int2': 'int2',
+    'smallserial': 'serial2',
+        'serial2': 'serial2',
+    'serial': 'serial4',
+        'serial4': 'serial4',
+    'text': 'text',
+    'time': 'time',
+    'time with time zone': 'timetz',
+        'timetz': 'timetz',
+    'timestamp': 'timestamp',
+    'timestamp with time zone': 'timestamptz',
+        'timestamptz': 'timestamptz',
+    'tsquery': 'tsquery',
+    'tsvector': 'tsvector',
+    'txid_snapshot': 'txid_snapshot',
+    'uuid': 'uuid',
+    'xml': 'xml',
+    }
+
 PGSQL_SYSTEM_COLUMNS =\
     ['oid', 'tableoid', 'xmin',
      'cmin', 'xmax', 'cmax', 'ctid']
@@ -36,29 +81,25 @@ class Manager(object):
         self.show_info = show_info
 
     def addColumn(self, table, column, type_='text', schema=None, commit=True):
-        if type_ not in VALID_COLUMN_TYPE:
-            raise ValueError('Type "{t}" is not a valid type. '\
-                'You can manually add it to "VALID_COLUMN_TYPE" variable '\
-                'if your column type is not list there.'.format(t=type_))
         if not schema:
             schema = self.getCurrentSchema()
         if self.isSchemaExists(schema):
             if self.isTableExists(table, schema):
                 if not self.isColumnExists(table, column, schema):
-                    #already checked type_ above,
-                    #but still use it at your own risk!!
-                    sql_str = r"ALTER TABLE {sn}.{tn} ADD COLUMN {cn} "+\
-                    "{ct}".format(ct=type_)
-                    query = psysql.SQL(sql_str).format(
-                        sn=psysql.Identifier(schema),
-                        tn=psysql.Identifier(table),
-                        cn=psysql.Identifier(column))
-                    self.execute(query)
+                    type_ = TYPE_TO_IDENTIFIER.get(type_.lower(), type_)
+                    self.execute(psysql.SQL(
+                        "ALTER TABLE {sn}.{tn} ADD COLUMN {cn} {ct}").format(
+                            sn=psysql.Identifier(schema),
+                            tn=psysql.Identifier(table),
+                            cn=psysql.Identifier(column),
+                            ct=psysql.Identifier(type_))
+                        )
                     if commit:
                         self.commit()
                 else:
-                    print('The column "{c}" in table "{t}" already exists, '\
-                        'just skipped.'.format(c=column, t=table))
+                    raise ValueError(
+                        'The column "{c}" in table "{t}" '\
+                        'already exists.'.format(c=column, t=table))
             else:
                 raise ValueError(
                     'The table "{t}" is not exists.'.format(t=table))
@@ -112,16 +153,41 @@ class Manager(object):
             print('The database {db_n} already exists, '\
                   'creation is skipped.'.format(db_n=database))
 
-    def createExtension(self, extension):
-        if extension not in VALID_EXTENSION_NAME:
-            raise ValueError('Extension "{t}" is not a valid extension. '\
-                'You can manually add it to "VALID_EXTENSION_NAME" variable '\
-                'if your extension is not list there.'.format(t=extension))
-        if not self.isExtensionExists(extension):
-            self.execute('CREATE EXTENSION {ext_n}'.format(ext_n=extension))
+    def createExtension(self, extension, schema=None):
+        if not schema:
+            schema = self.getCurrentSchema()
+        if self.isSchemaExists(schema):
+            if not self.isExtensionExists(extension):
+                self.execute(
+                    psysql.SQL('CREATE EXTENSION {e} SCHEMA {s}').format(
+                        e=psysql.Identifier(extension),
+                        s=psysql.Identifier(schema)))
+            else:
+                if schema != self.getExtensionSchema(extension):
+                    print('The extension "{e}" already exists in schema "{s}", '\
+                      'move it to the specified schema "{s_to}".'.format(
+                        e=extension,
+                        s=self.getExtensionSchema(extension),
+                        s_to=schema))
+                    self.switchExtensionSchema(extension, schema)
+                else:
+                    print('The extension "{e}" already exists in schema "{s}", '\
+                          'the creation is skipped.'.format(
+                            e=extension,
+                            s=schema))
         else:
-            print('The extension "{ext_n}" already exists, '\
-                  'the creation is skipped.'.format(ext_n=extension))
+            raise ValueError(
+                'The schema "{s}" is not exists.'.format(s=schema))
+
+    def createRole(self, role, commit=True):
+        if not self.isRoleExists(role):
+            self.execute(psysql.SQL(
+                'CREATE ROLE {un}').format(un=psysql.Identifier(role)))
+            if commit:
+                self.commit()
+        else:
+            print('The role "{un}" already exists, '\
+                  'creation is skipped.'.format(un=role))
 
     def createSchema(self, schema, commit=True):
         if not self.isSchemaExists(schema):
@@ -155,7 +221,7 @@ class Manager(object):
             column_type_list = [column_type] * len(column_name)
         elif isinstance(column_type, dict):
             column_type_list = ["text"] * len(column_name)
-            for k,v in column_type.iteritems():
+            for k,v in column_type.items():
                 if isinstance(k, str):
                     idx_k = column_name.index(k)
                     column_type_list[idx_k] = v
@@ -163,29 +229,24 @@ class Manager(object):
                     column_type_list[k] = v
         elif isinstance(column_type, list):
             column_type_list = column_type
-        #check valid type
-        for ct_i in column_type_list:
-            if ct_i not in VALID_COLUMN_TYPE:
-                raise ValueError('Type "{t}" is not a valid type. '\
-                    'You can manually add it to "VALID_COLUMN_TYPE" variable '\
-                    'if your column type is not list there.'.format(t=ct_i))
-        column_name_placeholder = ['{}'] * len(column_name)
-        column_def = ", ".join(map(lambda x: ' '.join(x),
-                                   zip(column_name_placeholder,
-                                       column_type_list)))
-        commands = []
+        #back to column_type
+        column_type = map(
+            lambda t: TYPE_TO_IDENTIFIER.get(t.lower(), t),
+            column_type_list)
+        del column_type_list
         if self.isTableExists(table, schema) and if_exists == 'drop':
-            #drop table
-            commands.append(psysql.SQL(
-                'DROP TABLE {sm}.{tn}').format(
-                    sm=psysql.Identifier(schema),
-                    tn=psysql.Identifier(table)))
-        cmd_str = r'CREATE TABLE {}.{} (' + '{cd})'.format(cd=column_def)
-        commands.append(psysql.SQL(cmd_str).format(
-            *(map(psysql.Identifier, [schema, table] + column_name))
-            ))
-        for cmd in commands:
-            self.execute(cmd)
+            self.dropTable(table, schema, commit=False)
+        self.execute(psysql.SQL(
+            'CREATE TABLE {s}.{t} ({cd})').format(
+                s=psysql.Identifier(schema),
+                t=psysql.Identifier(table),
+                cd=psysql.SQL(', ').join(
+                    map(psysql.SQL(' ').join, 
+                        zip(map(psysql.Identifier, column_name),
+                            map(psysql.Identifier, column_type)))
+                    )
+                )
+            )
         if commit:
             self.commit()
 
@@ -198,6 +259,26 @@ class Manager(object):
         else:
             print('The user "{un}" already exists, '\
                   'creation is skipped.'.format(un=user))
+
+    def dropTable(self, table, schema=None, commit=True):
+        if not schema:
+            schema = self.getCurrentSchema()
+        if self.isSchemaExists(schema):
+            if self.isTableExists(table, schema):
+                self.execute(
+                    psysql.SQL('DROP TABLE {sn}.{tn}').format(
+                        sn=psysql.Identifier(schema),
+                        tn=psysql.Identifier(table))
+                    )
+                if commit:
+                    self.commit()
+            else:
+                raise ValueError(
+                    'The table "{t}" is not exists.'.format(t=table))
+       
+        else:
+            raise ValueError(
+                'The schema "{s}" is not exists.'.format(s=schema))
 
     def execute(self, query, vars_=None):
         if self.show_info:
@@ -273,6 +354,25 @@ class Manager(object):
         self.execute('SELECT current_schema FROM current_schema()')
         return self._getFetchResultAtColumn(0)[0]
 
+    def getExtensionSchema(self, extension):
+        if self.isExtensionExists(extension):
+            self.execute(
+                psysql.SQL('''SELECT nspname FROM pg_namespace, pg_extension 
+                    WHERE pg_namespace.oid = pg_extension.extnamespace
+                    AND pg_extension.extname = %(e)s
+                    '''),
+                dict(e=extension))
+            return self._getFetchResultAtColumn(0)[0]
+        else:
+            raise ValueError(
+                'The extension "{e}" is not exists.'.format(e=extension))
+
+    def getSearchPath(self):
+        self.execute('SHOW search_path')
+        path_str = self._getFetchResultAtColumn(0)[0]
+        return list(
+            map(lambda x: x.strip().replace('"',''),path_str.split(',')))
+
     def isColumnExists(self, table, column, schema=None):
         if not schema:
             schema = self.getCurrentSchema()
@@ -331,13 +431,92 @@ class Manager(object):
         else:
             return False
 
+    def renameColumn(self, table, column, to_column, schema=None, commit=True):
+        if not schema:
+            schema = self.getCurrentSchema()
+        if self.isSchemaExists(schema):
+            if self.isTableExists(table, schema):
+                if self.isColumnExists(table, column, schema):
+                    self.execute(psysql.SQL(
+                        'ALTER TABLE {s}.{t} RENAME COLUMN {c} TO {nc}').format(
+                            s=psysql.Identifier(schema),
+                            t=psysql.Identifier(table),
+                            c=psysql.Identifier(column),
+                            nc=psysql.Identifier(to_column)))
+                    if commit:
+                        self.commit()
+                else:
+                    raise ValueError(
+                        'The column "{c}" is not exists.'.format(c=column))
+            else:
+                raise ValueError(
+                    'The table "{t}" is not exists.'.format(t=table))
+        else:
+            raise ValueError(
+                'The schema "{s}" is not exists.'.format(s=schema))
+
+    def renameTable(self, table, to_table, schema=None, commit=True):
+        if not schema:
+            schema = self.getCurrentSchema()
+        if self.isSchemaExists(schema):
+            if self.isTableExists(table, schema):
+                self.execute(psysql.SQL(
+                    'ALTER TABLE {s}.{t} RENAME TO {nt}').format(
+                        s=psysql.Identifier(schema),
+                        t=psysql.Identifier(table),
+                        nt=psysql.Identifier(to_table)))
+                if commit:
+                    self.commit()
+            else:
+                raise ValueError(
+                    'The table "{t}" is not exists.'.format(t=table))
+        else:
+            raise ValueError(
+                'The schema "{s}" is not exists.'.format(s=schema))
+
+    def rollback(self):
+        #warp
+        self.conn.rollback()
+
+    def setCurrentSchema(self, schema):
+        if self.isSchemaExists(schema):
+            self.setSearchPath([schema])
+        else:
+            raise ValueError(
+                'The schema "{s}" is not exists.'.format(s=schema))
+
+    def setSearchPath(self, search_path):
+        self.execute(psysql.SQL('SET search_path TO {sp}').format(
+            sp=psysql.SQL(', ').join(map(psysql.Identifier, search_path))))
+
     def switchDatabase(self, database):
         if self.isDatabaseExists(database):
             self.conn_param['database'] = database
+            self.close()
             self.__init__(**self.conn_param, show_info=self.show_info)
         else:
             raise ValueError(
                 'The database "{d}" is not exists.'.format(d=database))
+
+    def switchExtensionSchema(self, extension, schema, commit=True):
+        if self.isExtensionExists(extension):
+            if self.isSchemaExists(schema):
+                if self.getExtensionSchema != schema:
+                    self.execute(
+                        psysql.SQL('ALTER EXTENSION {e} SET SCHEMA {s}').format(
+                            e=psysql.Identifier(extension),
+                            s=psysql.Identifier(schema)))
+                    if commit:
+                        self.commit()
+                else:
+                    print('The extension "{e}" is already in schema "{s}"'\
+                        'just skipped.'.format(e=extension, s=schema)) 
+            else:
+                raise ValueError(
+                    'The schema "{s}" is not exists.'.format(s=schema)) 
+        else:
+            raise ValueError(
+                'The extension "{e}" is not exists.'.format(e=extension))
 
     def _getFetchResultAtColumn(self, idx=0):
         res = self.cur.fetchall()
