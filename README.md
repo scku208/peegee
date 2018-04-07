@@ -34,9 +34,5 @@ A pythonic PostgreSQL client based on psycopg2 suit only for Python3
     pgm.switchDatabase('db_name') #link to other database
     pgm.createDatabase('new_db_name') #create db~
     
-# You Should Note
-The method of peegee's Manager, which including "assign column data type" or "create extension", that psycopg2 does not provide safety method, may get SQL injection (e.g. addColumn, createTable...etc.). I am trying to avoid SQL injection by adding "VALID_COLUMN_TYPE" and "VALID_EXTENSION_NAME" variables to verify input. But still, YOU SHOULD USE THESE METHOD WITH TRUST INPUT!
-
-On the other hand, if your input should be trust, but is block by peegee, you can manually edit peegee.py by adding input to these variables, e.g. if "blah" extension can be trust and you want to create, just edit VALID_EXTENSION_NAME to ('postgis', 'blah'). then do:
-
-    pgm.createExtension('blah') # should pass now
+# Note
+The method of peegee's Manager, which including "assign column data type", that psycopg2 does not provide safety method directly, I am trying to prevent SQL injection by converting "column data type" from SQL keyword to PostgreSQL identifier.
