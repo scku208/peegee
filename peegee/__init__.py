@@ -1,1 +1,0 @@
-from .peegee import Manager

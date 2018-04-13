@@ -1,5 +1,5 @@
 # peegee
-A pythonic PostgreSQL client based on psycopg2 suit only for Python3
+A PostgreSQL client based on psycopg2
 
 # Installation
     pip install peegee

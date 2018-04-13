@@ -4,6 +4,8 @@ import sys
 import psycopg2
 import psycopg2.sql as psysql
 
+__version__ = '0.2.1'
+
 TYPE_TO_IDENTIFIER = {
     'bigint': 'int8',
         'int8': 'int8',
@@ -493,7 +495,7 @@ class Manager(object):
         if self.isDatabaseExists(database):
             self.conn_param['database'] = database
             self.close()
-            self.__init__(**self.conn_param, show_info=self.show_info)
+            self.__init__(show_info=self.show_info, **self.conn_param)
         else:
             raise ValueError(
                 'The database "{d}" is not exists.'.format(d=database))
