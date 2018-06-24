@@ -1,3 +1,7 @@
+# Move
+This project has been moved to gitlab:
+https://gitlab.com/scku208/peegee
+
 # peegee
 A PostgreSQL client based on psycopg2
 
